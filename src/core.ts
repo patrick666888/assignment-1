@@ -1,3 +1,4 @@
+/* 輸入 Type */
 export type BillInput = {
   date: string;
   location: string;
@@ -21,6 +22,7 @@ type PersonalBillItem = CommonBillItem & {
   person: string; // 必需的屬性
 };
 
+/* 輸出 Type */
 export type BillOutput = {
   date: string;
   location: string;
@@ -35,14 +37,15 @@ type PersonItem = {
   amount: number;
 };
 
+/* 核心函數 */
 export function splitBill(input: BillInput): BillOutput {
-  const date = formatDate(input.date);
-  const location = input.location;
-  const subTotal = calculateSubTotal(input.items);
-  const tip = calculateTip(subTotal, input.tipPercentage);
-  const totalAmount = subTotal + tip;
-  const items = calculateItems(input.items, input.tipPercentage);
-  adjustAmounts(totalAmount, items);
+  let date = formatDate(input.date);
+  let location = input.location;
+  let subTotal = calculateSubTotal(input.items);
+  let tip = calculateTip(subTotal, input.tipPercentage);
+  let totalAmount = subTotal + tip;
+  let items = calculateItems(input.items, input.tipPercentage);
+  adjustAmount(totalAmount, items);
 
   return {
     date,
@@ -82,20 +85,21 @@ function calculateItems(items: BillItem[], tipPercentage: number): PersonItem[] 
   const personsCount = names.length;
   return names.map(name => ({
     name,
-    amount: calculatePersonAmount({ items, name, personsCount }),
+    amount: calculatePersonAmount({ items, tipPercentage, name, persons: personsCount }),
   }));
 }
 
 function calculatePersonAmount(input: {
   items: BillItem[];
+  tipPercentage: number;
   name: string;
-  personsCount: number;
+  persons: number;
 }): number {
   let total = 0;
 
   input.items.forEach(item => {
     if (item.isShared) {
-      total += item.price / (input.personsCount + 1); // 包括共享人員
+      total += item.price / (input.persons + 1); // 包括共享人員
     } else {
       const personalItem = item as PersonalBillItem;
       if (personalItem.person === input.name) {
@@ -107,13 +111,14 @@ function calculatePersonAmount(input: {
   return Math.round(total * 10) / 10; // 四捨五入至最近 $0.1
 }
 
-function adjustAmounts(totalAmount: number, items: PersonItem[]): void {
+function adjustAmount(totalAmount: number, items: PersonItem[]): void {
   const totalPaid = items.reduce((sum, item) => sum + item.amount, 0);
   const adjustment = totalAmount - totalPaid;
 
   // 按比例調整金額，確保總金額正確
   if (adjustment !== 0) {
     const adjustmentPerPerson = adjustment / items.length;
+
     items.forEach(item => {
       item.amount += adjustmentPerPerson; // 先做調整
     });
@@ -128,6 +133,7 @@ function adjustAmounts(totalAmount: number, items: PersonItem[]): void {
   const finalTotal = items.reduce((sum, item) => sum + item.amount, 0);
   const finalAdjustment = totalAmount - finalTotal;
 
+  // 將最終調整加到第一位使用者
   if (finalAdjustment !== 0) {
     items[0].amount += finalAdjustment; // 將最終調整加到第一個人
     items[0].amount = Math.round(items[0].amount * 10) / 10; // 保持四捨五入
