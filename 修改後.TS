@@ -42,8 +42,8 @@ export function splitBill(input: BillInput): BillOutput {
   const tip = calculateTip(subTotal, input.tipPercentage);
   const totalAmount = subTotal + tip;
   const items = calculateItems(input.items, input.tipPercentage);
-  adjustAmounts(totalAmount, items);
-
+  adjustAmount(totalAmount, items);
+  
   return {
     date,
     location,
@@ -64,7 +64,8 @@ function calculateSubTotal(items: BillItem[]): number {
 }
 
 export function calculateTip(subTotal: number, tipPercentage: number): number {
-  return Math.round((subTotal * tipPercentage) / 100 * 10) / 10; // 四捨五入至最近 $0.1
+  const tip = (subTotal * tipPercentage) / 100;
+  return Math.round(tip * 10) / 10; // 四捨五入至最近 $0.1
 }
 
 function scanPersons(items: BillItem[]): string[] {
@@ -77,17 +78,26 @@ function scanPersons(items: BillItem[]): string[] {
   return Array.from(personsSet);
 }
 
-function calculateItems(items: BillItem[], tipPercentage: number): PersonItem[] {
+function calculateItems(
+  items: BillItem[],
+  tipPercentage: number,
+): PersonItem[] {
   const names = scanPersons(items);
   const personsCount = names.length;
   return names.map(name => ({
     name,
-    amount: calculatePersonAmount({ items, name, personsCount }),
+    amount: calculatePersonAmount({
+      items,
+      tipPercentage,
+      name,
+      personsCount,
+    }),
   }));
 }
 
 function calculatePersonAmount(input: {
   items: BillItem[];
+  tipPercentage: number;
   name: string;
   personsCount: number;
 }): number {
@@ -95,41 +105,27 @@ function calculatePersonAmount(input: {
 
   input.items.forEach(item => {
     if (item.isShared) {
-      total += item.price / (input.personsCount + 1); // 包括共享人員
+      total += item.price / input.personsCount; // 平均分擔
     } else {
-      const personalItem = item as PersonalBillItem;
+      const personalItem = item as PersonalBillItem; // 確保作為 PersonalBillItem 處理
       if (personalItem.person === input.name) {
         total += personalItem.price; // 個別計算
       }
     }
   });
 
-  return Math.round(total * 10) / 10; // 四捨五入至最近 $0.1
+  const subTotal = calculateSubTotal(input.items);
+  const tip = calculateTip(subTotal, input.tipPercentage);
+  return Math.round((total + tip) * 10) / 10; // 四捨五入至最近 $0.1
 }
 
-function adjustAmounts(totalAmount: number, items: PersonItem[]): void {
+function adjustAmount(totalAmount: number, items: PersonItem[]): void {
   const totalPaid = items.reduce((sum, item) => sum + item.amount, 0);
   const adjustment = totalAmount - totalPaid;
 
-  // 按比例調整金額，確保總金額正確
-  if (adjustment !== 0) {
-    const adjustmentPerPerson = adjustment / items.length;
-    items.forEach(item => {
-      item.amount += adjustmentPerPerson; // 先做調整
-    });
-  }
-
-  // 最後進行四捨五入
+  // 調整金額
   items.forEach(item => {
+    item.amount += adjustment / items.length;
     item.amount = Math.round(item.amount * 10) / 10; // 四捨五入至最近 $0.1
   });
-
-  // 確保所有金額相加等於總金額
-  const finalTotal = items.reduce((sum, item) => sum + item.amount, 0);
-  const finalAdjustment = totalAmount - finalTotal;
-
-  if (finalAdjustment !== 0) {
-    items[0].amount += finalAdjustment; // 將最終調整加到第一個人
-    items[0].amount = Math.round(items[0].amount * 10) / 10; // 保持四捨五入
-  }
 }
