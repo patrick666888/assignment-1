@@ -51,39 +51,35 @@ export function splitBill(input: BillInput): BillOutput {
   return {
     date,
     location,
-    subTotal: roundToTwoDecimals(subTotal), // 四捨五入至兩位小數
-    tip: roundToTwoDecimals(tip), // 四捨五入至兩位小數
-    totalAmount: roundToTwoDecimals(totalAmount), // 四捨五入至兩位小數
+    subTotal: roundToTwoDecimals(subTotal),
+    tip: roundToTwoDecimals(tip),
+    totalAmount: roundToTwoDecimals(totalAmount),
     items,
   }
 }
 
 /* 格式化日期 */
 export function formatDate(date: string): string {
-  const parts = date.split("-");
-  return `${parts[0]}年${parseInt(parts[1], 10)}月${parseInt(parts[2], 10)}日`; // 去掉前導零
+  const [year, month, day] = date.split("-");
+  return `${year}年${parseInt(month, 10)}月${parseInt(day, 10)}日`;
 }
 
 /* 計算小計 */
 function calculateSubTotal(items: BillItem[]): number {
-  return items.reduce((total, item) => total + item.price, 0); // 累加所有項目的價格
+  return items.reduce((total, item) => total + item.price, 0);
 }
 
 /* 計算小費 */
 export function calculateTip(subTotal: number, tipPercentage: number): number {
-  const tipAmount = subTotal * (tipPercentage / 100); // 計算小費
-  return roundToOneDecimal(tipAmount); // 四捨五入至最近的 0.1 元
+  return roundToOneDecimal(subTotal * (tipPercentage / 100));
 }
 
 /* 收集所有參與者的名稱 */
 function scanPersons(items: BillItem[]): string[] {
-  const persons = new Set<string>();
-  items.forEach(item => {
-    if (!item.isShared && item.person) {
-      persons.add(item.person); // 收集個人項目的擁有者
-    }
-  });
-  return Array.from(persons); // 返回不重複的名稱陣列
+  return Array.from(new Set(items
+    .filter((item): item is PersonalBillItem => !item.isShared) // 確保是 PersonalBillItem
+    .map(item => item.person)
+  ));
 }
 
 /* 計算每個人的金額 */
@@ -93,36 +89,24 @@ function calculateItems(items: BillItem[], tipPercentage: number): PersonItem[] 
 
   return names.map(name => ({
     name,
-    amount: calculatePersonAmount({
-      items,
-      tipPercentage,
-      name,
-      persons: personsCount,
-    }),
+    amount: calculatePersonAmount(items, tipPercentage, name, personsCount),
   }));
 }
 
 /* 計算個人金額 */
-function calculatePersonAmount(input: {
-  items: BillItem[];
-  tipPercentage: number;
-  name: string;
-  persons: number;
-}): number {
-  let personalAmount = 0;
-  let sharedAmount = 0;
-
-  input.items.forEach(item => {
+function calculatePersonAmount(items: BillItem[], tipPercentage: number, name: string, persons: number): number {
+  const { personalAmount, sharedAmount } = items.reduce((acc, item) => {
     if (item.isShared) {
-      sharedAmount += item.price / input.persons; // 平均分攤共享項目
-    } else if (item.person === input.name) {
-      personalAmount += item.price; // 累加個人項目
+      acc.sharedAmount += item.price / persons;
+    } else if (item.person === name) {
+      acc.personalAmount += item.price;
     }
-  });
+    return acc;
+  }, { personalAmount: 0, sharedAmount: 0 });
 
-  const totalAmount = personalAmount + sharedAmount; // 計算總金額
-  const individualTip = (totalAmount * input.tipPercentage) / 100; // 計算小費
-  return roundToOneDecimal(totalAmount + individualTip); // 四捨五入至最近的 0.1 元
+  const totalAmount = personalAmount + sharedAmount;
+  const individualTip = (totalAmount * tipPercentage) / 100;
+  return roundToOneDecimal(totalAmount + individualTip);
 }
 
 /* 調整金額以確保正確 */
@@ -130,19 +114,16 @@ function adjustAmounts(totalAmount: number, items: PersonItem[]): void {
   const currentTotal = items.reduce((sum, item) => sum + item.amount, 0);
   const difference = totalAmount - currentTotal;
 
-  if (Math.abs(difference) < 0.01) return; // 如果沒有誤差，直接返回
+  if (Math.abs(difference) < 0.01) return;
 
-  const adjustmentPerPerson = parseFloat((difference / items.length).toFixed(1)); // 平均調整金額
+  const adjustmentPerPerson = parseFloat((difference / items.length).toFixed(1));
   items.forEach(item => {
-    item.amount = parseFloat((item.amount + adjustmentPerPerson).toFixed(1)); // 調整每個人的金額
+    item.amount = parseFloat((item.amount + adjustmentPerPerson).toFixed(1));
   });
 
   const finalTotal = items.reduce((sum, item) => sum + item.amount, 0);
-  const finalDifference = totalAmount - finalTotal;
-
-  // 如果仍有差異，調整第一個人的金額
-  if (finalDifference !== 0) {
-    items[0].amount = parseFloat((items[0].amount + finalDifference).toFixed(1));
+  if (finalTotal !== totalAmount) {
+    items[0].amount = parseFloat((items[0].amount + (totalAmount - finalTotal)).toFixed(1));
   }
 }
 
